@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+if (!class_exists(\HElturkey\WebTrawler\Cli\Application::class)) {
+    fwrite(STDERR, "Run \"composer install\" first.\n");
+    exit(1);
+}
+
+$stop = false;
+if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    // Ctrl-C / SIGTERM stop a crawl cleanly so its state file is saved.
+    foreach ([SIGINT, SIGTERM] as $signal) {
+        pcntl_signal($signal, static function () use (&$stop): void {
+            $stop = true;
+        });
+    }
+}
+
+exit((new \HElturkey\WebTrawler\Cli\Application(shouldStop: static function () use (&$stop): bool {
+    return $stop;
+}))->run(array_slice($argv, 1)));

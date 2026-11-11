@@ -1,0 +1,98 @@
+# syntax=docker/dockerfile:1.7
+
+# Node 24 is a supported LTS line and includes the npm CLI needed by
+# playwright-php/playwright. Keep this on the same Debian release as PHP.
+FROM node:24-bookworm-slim AS node-runtime
+
+FROM php:8.4-cli-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    COMPOSER_ALLOW_SUPERUSER=1 \
+    COMPOSER_ROOT_VERSION=1.0.0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# PHP extension build dependencies. libonig-dev is required by mbstring.
+# curl is installed conditionally because this PHP image may already ship
+# with ext-curl enabled; compiling/enabling it again produces a duplicate
+# extension warning.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        libatomic1 \
+        libcurl4-openssl-dev \
+        libicu-dev \
+        libonig-dev \
+        libsqlite3-dev \
+        libxml2-dev \
+        libzip-dev \
+        passwd \
+        unzip \
+        zip \
+    && if ! php -r 'exit(extension_loaded("curl") ? 0 : 1);'; then \
+        docker-php-ext-install -j"$(nproc)" curl; \
+    fi \
+    && docker-php-ext-install -j"$(nproc)" \
+        dom \
+        iconv \
+        intl \
+        mbstring \
+        pdo_sqlite \
+        xmlwriter \
+        zip \
+    && php -r '$required = ["curl", "dom", "iconv", "intl", "mbstring", "pdo_sqlite", "xmlwriter", "zip"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Node and npm from the same official Node image. The npm CLI files
+# are symlinks in that image, so copy the npm package and recreate stable
+# symlinks rather than copying a dangling link.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
+RUN ln -sfn ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sfn ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version \
+    && npm --version
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY . /app
+
+# Resolve once and generate a lock file inside the image. --no-install avoids
+# downloading/extracting every package during update only to delete vendor/
+# and install the same packages a second time.
+RUN composer update --no-install --no-interaction --prefer-dist --no-progress \
+    && composer validate --strict \
+    && composer install --no-interaction --prefer-dist --no-progress
+
+# Install the Playwright server and Chromium while running as root because
+# --with-deps installs the required OS libraries through apt. Browser files
+# live in the shared, explicit PLAYWRIGHT_BROWSERS_PATH.
+RUN install -d -o root -g root -m 0755 "${PLAYWRIGHT_BROWSERS_PATH}" \
+    && vendor/bin/playwright-install --with-deps chromium \
+    && test -x /usr/local/bin/node \
+    && test -x /usr/local/bin/npm \
+    && test -d "${PLAYWRIGHT_BROWSERS_PATH}"
+
+# Run the test suite as an unprivileged user. Keep the browser installation
+# root-owned but readable/traversable by the scraper group.
+RUN groupadd --gid 10001 scraper \
+    && useradd \
+        --uid 10001 \
+        --gid scraper \
+        --create-home \
+        --home-dir /home/scraper \
+        --shell /usr/sbin/nologin \
+        scraper \
+    && chown -R root:scraper "${PLAYWRIGHT_BROWSERS_PATH}" \
+    && chmod -R g+rX "${PLAYWRIGHT_BROWSERS_PATH}" \
+    && chown -R scraper:scraper /app /home/scraper
+
+ENV HOME=/home/scraper \
+    SCRAPER_RUN_BROWSER_INTEGRATION=1
+
+USER scraper
+
+CMD ["vendor/bin/phpunit", "--configuration=phpunit.xml", "tests/Integration/PlaywrightBrowserDriverIntegrationTest.php"]

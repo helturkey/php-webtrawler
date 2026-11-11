@@ -1,0 +1,50 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+if (!class_exists(\HElturkey\WebTrawler\Mcp\McpServer::class)) {
+    fwrite(STDERR, "Run \"composer install\" first.\n");
+    exit(1);
+}
+
+// stdout carries protocol messages only; diagnostics go to stderr.
+$config = ['allowed_hosts' => []];
+$transport = 'guzzle';
+$emulation = null;
+$arguments = array_slice($argv, 1);
+for ($i = 0; $i < count($arguments); $i++) {
+    switch ($arguments[$i]) {
+        case '--allow-host':
+            $config['allowed_hosts'][] = $arguments[++$i] ?? '';
+            break;
+        case '--max-chars':
+            $config['max_chars'] = (int) ($arguments[++$i] ?? 20000);
+            break;
+        case '--allow-private-networks':
+            $config['block_private_networks'] = false;
+            break;
+        case '--transport':
+            $transport = $arguments[++$i] ?? 'guzzle';
+            break;
+        case '--emulation':
+            $emulation = $arguments[++$i] ?? null;
+            break;
+        case '--help':
+        case '-h':
+            fwrite(STDERR, "Usage: scraper-mcp [--allow-host HOST]... [--max-chars N] [--transport guzzle|rnet] [--emulation CHROME_136] [--allow-private-networks]\n");
+            exit(0);
+        default:
+            fwrite(STDERR, 'Unknown option ' . $arguments[$i] . "\n");
+            exit(2);
+    }
+}
+
+$http = $transport === 'rnet' ? new \HElturkey\WebTrawler\Http\RnetTransport($emulation) : new \HElturkey\WebTrawler\Http\GuzzleTransport();
+(new \HElturkey\WebTrawler\Mcp\McpServer(\HElturkey\WebTrawler\Scraper::create($http), $config))->serve(STDIN, STDOUT);

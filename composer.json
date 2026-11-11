@@ -1,0 +1,102 @@
+{
+    "name": "helturkey/php-webtrawler",
+    "description": "A PHP-first web scraping and crawling toolkit with adaptive extraction, concurrent spiders, and optional browser automation.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "adaptive-selectors",
+        "browser-automation",
+        "crawler",
+        "html",
+        "network-capture",
+        "playwright",
+        "scraping",
+        "tls-fingerprinting",
+        "web-crawling",
+        "web-scraping",
+        "webtrawler"
+    ],
+    "require": {
+        "ext-dom": "*",
+        "ext-json": "*",
+        "ext-libxml": "*",
+        "ext-xmlwriter": "*",
+        "guzzlehttp/guzzle": "^7.9",
+        "guzzlehttp/promises": "^2.0",
+        "php": "^8.4",
+        "symfony/css-selector": "^6.4 || ^7.3 || ^8.0",
+        "symfony/dom-crawler": "^6.4 || ^7.3 || ^8.0"
+    },
+    "require-dev": {
+        "dekor/php-impity": "^1.0",
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "orchestra/testbench": "^11.0",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5 || ^12.0",
+        "playwright-php/playwright": "^1.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "HElturkey\\WebTrawler\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "HElturkey\\WebTrawler\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --configuration=phpstan.neon",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "test-browser": "phpunit tests/Integration/PlaywrightBrowserDriverIntegrationTest.php",
+        "test-live": "phpunit --group live",
+        "check": [
+            "@cs",
+            "@stan",
+            "@test"
+        ],
+        "test-laravel": "phpunit tests/LaravelIntegrationTest.php",
+        "test-impity": "phpunit --group impity",
+        "test-rnet": "phpunit --filter test_the_php_rnet_adapter_against_the_real_extension tests/LocalServerIntegrationTest.php"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {},
+        "platform": {
+            "php": "8.4.0"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "suggest": {
+        "playwright-php/playwright": "Optional Chromium automation for JavaScript rendering, browser sessions, and request/response capture. Requires Node.js 20+ and installed Playwright browsers.",
+        "dekor/php-impity": "Optional PSR-18 transport using curl-impersonate for browser-like TLS and HTTP/2 fingerprints. Requires the matching curl-impersonate binary.",
+        "ext-intl": "Required to fetch internationalized (non-ASCII) host names such as https://example.com/.",
+        "ext-mbstring": "Faster, broader charset conversion for non-UTF-8 pages (iconv is used as a fallback).",
+        "illuminate/support": "Laravel 13 integration: service provider, Scrape facade, configuration and scraper:fetch command (Testbench 11.x in development tests).",
+        "ext-pcntl": "Lets `scraper crawl` stop cleanly on Ctrl-C / SIGTERM and save its resume state.",
+        "ext-posix": "Enables ownership checks on browser-session directories."
+    },
+    "scripts-descriptions": {
+        "check": "Run code style, static analysis and tests."
+    },
+    "support": {
+        "issues": "https://github.com/helturkey/php-webtrawler/issues"
+    },
+    "bin": [
+        "bin/scraper",
+        "bin/scraper-mcp"
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "HElturkey\\WebTrawler\\Laravel\\ScraperServiceProvider"
+            ],
+            "aliases": {
+                "Scrape": "HElturkey\\WebTrawler\\Laravel\\Facades\\Scrape"
+            }
+        }
+    }
+}
