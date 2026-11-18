@@ -1,0 +1,87 @@
+{
+    "summary": {
+        "cases": 72,
+        "target_present_cases": 66,
+        "precision_of_accepted": 1,
+        "recall_when_present": 0.9394,
+        "wrong_accept_rate_when_present": 0,
+        "false_accept_rate_when_removed": 0,
+        "marker_influence_drift_cases": 0
+    },
+    "by_mutation": {
+        "identity (control)": {
+            "correct_match": 6
+        },
+        "class rename": {
+            "correct_match": 6
+        },
+        "hashed classes (CSS-in-JS)": {
+            "correct_match": 6
+        },
+        "extra wrappers": {
+            "correct_match": 6
+        },
+        "tag swap": {
+            "correct_match": 6
+        },
+        "ids\/test-ids dropped": {
+            "correct_match": 6
+        },
+        "text edited": {
+            "missed": 1,
+            "correct_match": 5
+        },
+        "text translated (ar)": {
+            "correct_match": 5,
+            "missed": 1
+        },
+        "siblings reordered": {
+            "correct_match": 6
+        },
+        "decoy inserted": {
+            "correct_match": 6
+        },
+        "combined redesign": {
+            "correct_match": 4,
+            "missed": 2
+        },
+        "target removed (must refuse)": {
+            "correct_refusal": 6
+        }
+    },
+    "non_ideal": [
+        {
+            "template": "product-list",
+            "mutation": "text edited",
+            "outcome": "missed",
+            "status": "ambiguous",
+            "confidence": 0.713,
+            "margin": 0.009
+        },
+        {
+            "template": "article-author",
+            "mutation": "combined redesign",
+            "outcome": "missed",
+            "status": "low_confidence",
+            "confidence": 0.47,
+            "margin": 0.244
+        },
+        {
+            "template": "comment-author",
+            "mutation": "text translated (ar)",
+            "outcome": "missed",
+            "status": "ambiguous",
+            "confidence": 0.67,
+            "margin": 0.024
+        },
+        {
+            "template": "form-submit",
+            "mutation": "combined redesign",
+            "outcome": "missed",
+            "status": "low_confidence",
+            "confidence": 0.487,
+            "margin": 0.296
+        }
+    ],
+    "generated": "2026-11-08T11:28:11+00:00"
+}

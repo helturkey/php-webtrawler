@@ -1,0 +1,38 @@
+{
+    "name": "helturkey/php-webtrawler-optional-driver-check",
+    "description": "Isolated test project proving optional scraper transports remain optional.",
+    "type": "project",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../..",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "helturkey/php-webtrawler": "1.0.x-dev"
+                }
+            }
+        }
+    ],
+    "require": {
+        "helturkey/php-webtrawler": "1.0.x-dev"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "HElturkey\\WebTrawler\\Tests\\": "../../"
+        }
+    },
+    "config": {
+        "allow-plugins": {},
+        "platform": {
+            "php": "8.4.0"
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "license": "MIT"
+}
