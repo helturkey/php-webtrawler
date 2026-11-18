@@ -55,7 +55,10 @@ final class BloomFilter implements BloomFilterContract
         foreach ($this->indexes($value) as $index) {
             $byteIndex = intdiv($index, 8);
             $mask = 1 << ($index % 8);
-            $this->bits[$byteIndex] = chr(ord($this->bits[$byteIndex]) | $mask);
+
+            $byte = ord($this->bits[$byteIndex]) | $mask;
+
+            $this->bits[$byteIndex] = chr($byte & 0xFF);
         }
 
         $this->itemsAdded++;
