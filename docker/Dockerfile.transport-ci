@@ -1,0 +1,163 @@
+# syntax=docker/dockerfile:1.7
+#
+# php-rnet v0.0.2 documents Linux x86_64 as its supported build target.
+# On Apple Silicon, use Colima's linux/amd64 emulation (VZ/Rosetta or binfmt).
+#
+# IMPORTANT: this Dockerfile deliberately uses a single linear build chain.
+# The previous independent rnet-builder and transport-test stages compiled
+# Rust/BoringSSL and PHP extensions concurrently. Colima's emulated amd64 VM
+# then exhausted its available resources and cc1 crashed while compiling DOM.
+# PHP extension compilation and the Rust build are now serialized, and both
+# default to one build job. Override BUILD_JOBS only after confirming that the
+# Colima VM has enough memory.
+
+ARG PHP_IMAGE=php:8.4-cli-bookworm
+ARG PHP_RNET_REF=v0.0.2
+ARG CURL_IMPERSONATE_VERSION=2.3.1
+ARG BUILD_JOBS=1
+
+FROM ${PHP_IMAGE} AS transport-test
+
+ARG TARGETARCH
+ARG PHP_RNET_REF
+ARG CURL_IMPERSONATE_VERSION
+ARG BUILD_JOBS
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    COMPOSER_ALLOW_SUPERUSER=1 \
+    COMPOSER_ROOT_VERSION=1.0.0 \
+    IMPITY_CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate \
+    PHP_CONFIG=/usr/local/bin/php-config \
+    LIBCLANG_PATH=/usr/lib/llvm-18/lib \
+    CARGO_HOME=/root/.cargo \
+    RUSTUP_HOME=/root/.rustup \
+    PATH=/root/.cargo/bin:${PATH} \
+    CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    MAKEFLAGS=-j1
+
+RUN test "${TARGETARCH}" = "amd64" || { \
+        echo "php-rnet ${PHP_RNET_REF} is tested here only for linux/amd64; build with --platform=linux/amd64." >&2; \
+        exit 1; \
+    } \
+    && case "${BUILD_JOBS}" in \
+        ''|*[!0-9]*|0) echo "BUILD_JOBS must be a positive integer." >&2; exit 1 ;; \
+    esac \
+    && test "$(php-config --version | cut -d. -f1,2)" = "8.4"
+
+# Install PHP extension headers/libraries and the native build toolchain in a
+# single apt transaction. libonig-dev is required by mbstring. The build tools
+# are intentionally retained in this test-only image to avoid a risky purge
+# of shared libraries needed by librnet.so or curl-impersonate.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        git \
+        gnupg \
+        libcurl4-openssl-dev \
+        libicu-dev \
+        libonig-dev \
+        libsqlite3-dev \
+        libxml2-dev \
+        libzip-dev \
+        passwd \
+        pkg-config \
+        unzip \
+        zip \
+    && curl -fsSL --retry 5 --retry-all-errors \
+        https://apt.llvm.org/llvm-snapshot.gpg.key \
+        -o /tmp/llvm-snapshot.gpg.key \
+    && gpg --dearmor \
+        -o /usr/share/keyrings/llvm-archive-keyring.gpg \
+        /tmp/llvm-snapshot.gpg.key \
+    && echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-18 main" \
+        > /etc/apt/sources.list.d/llvm-18.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends clang-18 libclang-18-dev \
+    && rm -rf /var/lib/apt/lists/* /tmp/llvm-snapshot.gpg.key
+
+# Compile PHP extensions serially. Using nproc here is unsafe in Colima:
+# emulated amd64 containers may report more CPUs than the VM can compile on.
+RUN if ! php -r 'exit(extension_loaded("curl") ? 0 : 1);'; then \
+        docker-php-ext-install -j"${BUILD_JOBS}" curl; \
+    fi \
+    && docker-php-ext-install -j"${BUILD_JOBS}" \
+        dom \
+        iconv \
+        intl \
+        mbstring \
+        pdo_sqlite \
+        xmlwriter \
+        zip \
+    && php -r '$required = ["curl", "dom", "iconv", "intl", "mbstring", "pdo_sqlite", "xmlwriter", "zip"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }'
+
+# Install Rust after PHP extension compilation. Cargo and CMake are both
+# constrained to BUILD_JOBS (one by default) to avoid memory spikes under QEMU.
+RUN curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors \
+        https://sh.rustup.rs \
+        -o /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable \
+    && rm -f /tmp/rustup-init.sh \
+    && rustc --version \
+    && cargo --version
+
+RUN git clone --depth 1 --branch "${PHP_RNET_REF}" \
+        https://github.com/takielias/php-rnet.git /tmp/php-rnet
+
+# Cache downloaded crates across rebuilds. This stage is linear, so Cargo does
+# not compete with docker-php-ext-install in a parallel BuildKit stage.
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    CARGO_BUILD_JOBS="${BUILD_JOBS}" \
+    cargo build --release --locked --jobs "${BUILD_JOBS}" \
+        --manifest-path /tmp/php-rnet/Cargo.toml \
+    && test -s /tmp/php-rnet/target/release/librnet.so
+
+# Install and load the extension into the exact PHP 8.4 ABI used to compile it.
+RUN install -D -m 0644 /tmp/php-rnet/target/release/librnet.so \
+        "$(php-config --extension-dir)/librnet.so" \
+    && printf '%s\n' 'extension=librnet.so' \
+        > "${PHP_INI_DIR}/conf.d/99-php-rnet.ini" \
+    && php -r 'if (!extension_loaded("php-rnet") || !class_exists("RNet\\ClientBuilder")) { fwrite(STDERR, "php-rnet did not load for this PHP 8.4 runtime.\n"); exit(1); }' \
+    && ldd "$(php-config --extension-dir)/librnet.so" \
+    && php --ri php-rnet >/dev/null
+
+# Install the pinned curl-impersonate binary used by dekor/php-impity.
+RUN curl -fsSL --retry 5 --retry-all-errors \
+        "https://github.com/lexiforest/curl-impersonate/releases/download/v${CURL_IMPERSONATE_VERSION}/curl-impersonate-v${CURL_IMPERSONATE_VERSION}.x86_64-linux-gnu.tar.gz" \
+        -o /tmp/curl-impersonate.tar.gz \
+    && tar -tzf /tmp/curl-impersonate.tar.gz | grep -Fx 'curl-impersonate' \
+    && tar -xzf /tmp/curl-impersonate.tar.gz -C /usr/local/bin curl-impersonate \
+    && chmod 0755 /usr/local/bin/curl-impersonate \
+    && rm -f /tmp/curl-impersonate.tar.gz \
+    && /usr/local/bin/curl-impersonate --version
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY . /app
+COPY docker/test-transports.sh /usr/local/bin/test-transports
+
+# This is a Composer library: generate a fresh development lock, validate it,
+# then install from that lock. Both native transports are mandatory in this
+# image; the test runner rejects skipped integration tests.
+RUN composer update --no-install --no-interaction --prefer-dist --no-progress \
+    && composer validate --strict \
+    && composer install --no-interaction --prefer-dist --no-progress \
+    && chmod 0755 /usr/local/bin/test-transports \
+    && groupadd --gid 10001 scraper \
+    && useradd \
+        --uid 10001 \
+        --gid scraper \
+        --create-home \
+        --home-dir /home/scraper \
+        --shell /usr/sbin/nologin \
+        scraper \
+    && chown -R scraper:scraper /app /home/scraper
+
+ENV HOME=/home/scraper
+USER scraper
+
+CMD ["/usr/local/bin/test-transports"]
